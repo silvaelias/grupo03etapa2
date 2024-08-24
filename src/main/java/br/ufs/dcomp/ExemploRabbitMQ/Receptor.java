@@ -1,52 +1,56 @@
 package br.ufs.dcomp.ExemploRabbitMQ;
 
 import com.rabbitmq.client.*;
-import com.google.protobuf.InvalidProtocolBufferException;
-import java.io.IOException;
-import java.util.concurrent.TimeoutException;
 
-public class Receptor {
-    private final String username;
-    private final Connection connection;
-    private final Channel channel;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
-    public Receptor(String username) throws IOException, TimeoutException {
-        this.username = username;
+public class Receptor implements Runnable {
+    private final static String EXCHANGE_NAME = "chat_exchange";
+    private final String userName;
+    private String currentRecipient;
+
+    public Receptor(String userName) {
+        this.userName = userName;
+        this.currentRecipient = "";
+    }
+
+    @Override
+    public void run() {
         ConnectionFactory factory = new ConnectionFactory();
-        factory.setHost("192.168.1.252"); //
-        factory.setUsername("admin"); //
+        factory.setHost("192.168.1.252");
+        factory.setUsername("admin");
         factory.setPassword("password");
-        factory.setVirtualHost("/"); 
-        this.connection = factory.newConnection();
-        this.channel = connection.createChannel();
+        factory.setVirtualHost("/");
 
-        // Declara a fila do usuário
-        channel.queueDeclare(username, false, false, false, null);
+        try {
+            Connection connection = factory.newConnection();
+            Channel channel = connection.createChannel();
+
+            channel.exchangeDeclare(EXCHANGE_NAME, "direct");
+            String queueName = channel.queueDeclare(userName, false, false, false, null).getQueue();
+            channel.queueBind(queueName, EXCHANGE_NAME, userName);
+
+            // Callback para processar mensagens recebidas
+            DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+                // Decodifica a mensagem usando Protocol Buffers
+                MensagemProto.Mensagem mensagem = MensagemProto.Mensagem.parseFrom(delivery.getBody());
+                String emissor = mensagem.getEmissor();
+                String conteudo = new String(mensagem.getConteudo().getCorpo().toByteArray(), "UTF-8");
+
+                String timeStamp = mensagem.getData() + " às " + mensagem.getHora();
+                System.out.println("\n(" + timeStamp + ") " + emissor + " diz: " + conteudo);
+
+                // Restaura o prompt para o destinatário atual
+                System.out.print("@" + currentRecipient + ">> ");
+            };
+            channel.basicConsume(queueName, true, deliverCallback, consumerTag -> {});
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
-    public void start() throws IOException {
-        DeliverCallback deliverCallback = (consumerTag, delivery) -> {
-            try {
-                // Desserializa a mensagem recebida
-                MensagemOuterClass.Mensagem mensagem = MensagemOuterClass.Mensagem.parseFrom(delivery.getBody());
-
-                // Exibe a mensagem no formato desejado
-                System.out.println("(" + mensagem.getData() + " às " + mensagem.getHora() + ") "
-                        + mensagem.getEmissor() + " diz: " + mensagem.getConteudo().getCorpo().toStringUtf8());
-
-                // Reexibe o prompt atual
-                System.out.print("@" + mensagem.getEmissor() + ">> ");
-            } catch (InvalidProtocolBufferException e) {
-                e.printStackTrace();
-            }
-        };
-
-        // Consome mensagens da fila do usuário
-        channel.basicConsume(username, true, deliverCallback, consumerTag -> { });
-    }
-
-    public void close() throws IOException, TimeoutException {
-        channel.close();
-        connection.close();
+    public void setCurrentRecipient(String recipient) {
+        this.currentRecipient = recipient;
     }
 }
