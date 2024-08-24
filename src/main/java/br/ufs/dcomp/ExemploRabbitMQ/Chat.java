@@ -5,93 +5,48 @@
 
 package br.ufs.dcomp.ExemploRabbitMQ;
 
-import com.rabbitmq.client.ConnectionFactory;
-import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.DeliverCallback;
-
-import java.io.IOException;
 import java.util.Scanner;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.TimeoutException;
 
 public class Chat {
-    private String username;
-    private Emissor emissor;
-    private Receptor receptor;
-    private String currentRecipient = "";
-    private Map<String, String> groups = new HashMap<>();
-
-    public Chat(String username) throws IOException, TimeoutException {
-        this.username = username;
-        this.emissor = new Emissor(username);
-        this.receptor = new Receptor(username);
-        this.receptor.start();
-    }
-
-    public void startChat() {
+    public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
+        System.out.print("User: ");
+        String userName = scanner.nextLine();
+
+        Receptor receptor = new Receptor(userName);
+        Thread receptorThread = new Thread(receptor);
+
+        Thread emissorThread = new Thread(new Emissor(userName, receptor));
+
+        // Inicializa o Gerenciador de Grupos
+        Connection connection = // Obter a conexão apropriada
+        GerenciadorDeGrupos gerenciadorDeGrupos = new GerenciadorDeGrupos(connection);
+
+        // Loop para capturar comandos do usuário
         while (true) {
-            System.out.print(currentRecipient.isEmpty() ? ">> " : "@" + currentRecipient + ">> ");
             String input = scanner.nextLine();
 
             if (input.startsWith("!addGroup")) {
-                createGroup(input);
+                String groupName = input.split(" ")[1];
+                gerenciadorDeGrupos.addGroup(groupName);
+                gerenciadorDeGrupos.addUserToGroup(userName, groupName); // Adiciona o usuário ao grupo criado
             } else if (input.startsWith("!addUser")) {
-                addUserToGroup(input);
-            } else if (input.startsWith("@")) {
-                changeRecipient(input);
-            } else {
-                sendMessage(input);
+                String[] parts = input.split(" ");
+                String user = parts[1];
+                String group = parts[2];
+                gerenciadorDeGrupos.addUserToGroup(user, group);
+            } else if (input.startsWith("!delFromGroup")) {
+                String[] parts = input.split(" ");
+                String user = parts[1];
+                String group = parts[2];
+                gerenciadorDeGrupos.removeUserFromGroup(user, group);
+            } else if (input.startsWith("!removeGroup")) {
+                String groupName = input.split(" ")[1];
+                gerenciadorDeGrupos.removeGroup(groupName);
             }
         }
-    }
 
-    private void createGroup(String input) {
-        String[] parts = input.split(" ");
-        if (parts.length == 2) {
-            String groupName = parts[1];
-            groups.put(groupName, groupName);
-            System.out.println("Grupo " + groupName + " criado.");
-        } else {
-            System.out.println("Formato inválido para criação de grupo.");
-        }
-    }
-
-    private void addUserToGroup(String input) {
-        String[] parts = input.split(" ");
-        if (parts.length == 3) {
-            String userName = parts[1];
-            String groupName = parts[2];
-            // Em uma implementação completa, aqui você faria o bind da fila do usuário ao exchange do grupo
-            System.out.println("Usuário " + userName + " adicionado ao grupo " + groupName + ".");
-        } else {
-            System.out.println("Formato inválido para adicionar usuário ao grupo.");
-        }
-    }
-
-    private void changeRecipient(String input) {
-        currentRecipient = input.substring(1); // remove '@'
-    }
-
-    private void sendMessage(String messageText) {
-        if (currentRecipient.isEmpty()) {
-            System.out.println("Selecione um destinatário primeiro usando @username.");
-            return;
-        }
-        try {
-            emissor.sendMessage(currentRecipient, messageText);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public static void main(String[] args) throws IOException, TimeoutException {
-        System.out.print("User: ");
-        Scanner scanner = new Scanner(System.in);
-        String username = scanner.nextLine();
-        Chat chat = new Chat(username);
-        chat.startChat();
+        emissorThread.start();
+        receptorThread.start();
     }
 }
